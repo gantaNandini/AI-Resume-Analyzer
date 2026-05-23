@@ -1,94 +1,123 @@
-# AI-Powered Resume Intelligence Platform
+🤖 AI Resume Analyzer
+An AI-powered full-stack web application that analyzes your resume against a job description and gives you:
 
-A full-stack web application that enables job seekers to upload resumes and job descriptions, then receive intelligent AI-driven analysis including ATS compatibility scoring, skill gap detection, semantic similarity matching, and LLM-generated improvement suggestions.
+ATS Score (0–100) — how likely your resume passes Applicant Tracking Systems
+Skill Gap Analysis — which required/preferred skills are missing
+Section-level Similarity — how well each section matches the JD
+AI Improvement Suggestions — specific, actionable advice powered by LLaMA 3.3 (free via Groq)
+🖥️ Demo Screenshots
+Upload	Results
+Upload your resume + paste JD	Get ATS score, skill gap & AI suggestions
+🚀 Quick Start (Run Locally)
+Only requirement: Docker Desktop
 
-## Architecture
+Step 1 — Install Docker Desktop
+Download and install from docker.com/products/docker-desktop
 
-The platform is built on a scalable microservice architecture:
+Step 2 — Clone the repository
+git clone https://github.com/TanujaPammina/Resume_Analyzer.git
+cd Resume_Analyzer
+Step 3 — Set up environment variables
+# Windows
+copy .env.example .env
 
-| Service | Description |
-|---|---|
-| `frontend/` | React 18 + TypeScript + Vite SPA |
-| `services/auth_service/` | FastAPI — user registration, login, JWT issuance |
-| `services/file_processor/` | FastAPI — file upload, validation, parsing |
-| `services/nlp_pipeline/` | FastAPI — NLP preprocessing, skill extraction, embeddings |
-| `services/scoring_engine/` | FastAPI — ATS scoring, hybrid similarity, skill gap |
-| `services/llm_service/` | FastAPI — LLM-generated improvement suggestions |
-| `services/celery_worker/` | Celery — async job processing |
-| `shared/` | Shared Python utilities (logging, JWT, base models) |
-| `infra/docker/` | Docker Compose and Dockerfiles |
-| `infra/k8s/` | Kubernetes manifests |
-| `.github/workflows/` | CI/CD pipelines |
+# Mac/Linux
+cp .env.example .env
+Now open .env and fill in your values:
 
-## Quick Start
+JWT_SECRET_KEY=any-long-random-string-here
+OPENAI_API_KEY=gsk_your_groq_key_here
+LLM_MODEL=llama-3.3-70b-versatile
+Get a FREE Groq API key (no credit card needed):
 
-### Prerequisites
+Go to console.groq.com
+Sign up → API Keys → Create new key
+Copy and paste it as OPENAI_API_KEY
+Step 4 — Start everything
+docker compose up
+First run takes 5–10 minutes (downloads Docker images and the ML model). Subsequent runs start in ~30 seconds.
 
-- Docker & Docker Compose
-- Node.js 20+
-- Python 3.11+
+Step 5 — Open in browser
+http://localhost:3000
+Stop the app
+docker compose down
+✨ Features
+📄 Upload resume as PDF or DOCX
+💼 Paste job description directly or upload as PDF/DOCX/TXT
+📊 ATS Score with Poor / Fair / Strong band
+🔍 Skill Gap Analysis — required vs preferred missing skills
+📈 Section Scores — experience, education, skills similarity
+🤖 AI Suggestions — 3–10 specific improvement tips
+📥 Download PDF Report — save your analysis
+📋 History — view all your previous analyses
+🔐 Auth — secure login with JWT
+🏗️ Architecture
+Browser (React SPA)
+       │
+       ▼
+  Nginx (port 80) ── reverse proxy
+       │
+       ├── Auth Service      (port 8001)  — register / login / JWT
+       ├── File Processor    (port 8002)  — upload / validate / parse
+       ├── NLP Pipeline      (port 8003)  — preprocess / embed / skills
+       ├── Scoring Engine    (port 8004)  — ATS score / skill gap
+       └── LLM Service       (port 8005)  — AI suggestions (Groq/LLaMA)
 
-### Run the full stack
+Celery Worker — async job orchestration
+PostgreSQL — users, jobs, results
+Redis — caching, task backend
+RabbitMQ — message broker
+Qdrant — vector store for embeddings
+🛠️ Tech Stack
+Layer	Technology
+Frontend	React 18, TypeScript, Vite, TailwindCSS, Framer Motion
+Backend	FastAPI (Python 3.11), SQLAlchemy, Alembic
+AI/ML	spaCy, sentence-transformers (all-MiniLM-L6-v2), scikit-learn
+LLM	Groq (LLaMA 3.3 70B) — free
+Database	PostgreSQL 16
+Cache	Redis 7
+Queue	RabbitMQ 3.12 + Celery 5
+Vector DB	Qdrant 1.9
+Container	Docker + Docker Compose
+📁 Project Structure
+Resume_Analyzer/
+├── frontend/                  # React SPA
+├── services/
+│   ├── auth_service/          # User auth & JWT
+│   ├── file_processor/        # File upload & parsing
+│   ├── nlp_pipeline/          # NLP & embeddings
+│   ├── scoring_engine/        # ATS scoring
+│   ├── llm_service/           # AI suggestions
+│   └── celery_worker/         # Async job processing
+├── infra/
+│   ├── docker/nginx.conf      # Reverse proxy config
+│   └── k8s/                   # Kubernetes manifests
+├── docker-compose.yml
+├── .env.example
+└── INTERVIEW_GUIDE.md         # Full technical documentation
+🔧 Troubleshooting
+App not starting?
 
-```bash
-make up
-```
+# Check which containers are running
+docker compose ps
 
-### Stop all services
+# Check logs for a specific service
+docker compose logs auth_service
+docker compose logs nlp_pipeline
+AI suggestions not showing?
 
-```bash
-make down
-```
+Make sure your Groq API key starts with gsk_
+Make sure LLM_MODEL=llama-3.3-70b-versatile in .env
+Restart: docker compose restart llm_service
+Port 3000 already in use?
 
-### Run all tests
+# Stop whatever is using port 3000, then retry
+docker compose down
+docker compose up
+First run is slow?
 
-```bash
-make test
-```
+Normal — Docker is downloading images (~2GB total) and the ML model (~90MB)
+Subsequent runs are fast
+📖 Full Technical Documentation
+See INTERVIEW_GUIDE.md for a complete explanation of every technology choice, the full data flow, database schema, scoring formula, and common interview Q&A.
 
-### Run frontend only (development)
-
-```bash
-make frontend-dev
-```
-
-### Run a specific service
-
-```bash
-make service SERVICE=auth_service
-```
-
-## Development
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### Backend services
-
-Each service has its own `requirements.txt` and can be run independently:
-
-```bash
-cd services/auth_service
-pip install -r requirements.txt
-uvicorn main:app --reload
-```
-
-### Environment variables
-
-Copy `.env.example` files in each service directory and fill in the required values.
-
-## Tech Stack
-
-- **Frontend**: React 18, TypeScript, Tailwind CSS, Framer Motion, Vite, React Query
-- **Backend**: FastAPI (Python 3.11), PostgreSQL 16, Redis 7, RabbitMQ 3.12, Qdrant 1.9
-- **AI/ML**: spaCy, sentence-transformers, scikit-learn, OpenAI / LiteLLM
-- **Infrastructure**: Docker, Kubernetes, GitHub Actions, Prometheus, Grafana
-
-## License
-
-MIT
