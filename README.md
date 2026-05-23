@@ -15,7 +15,7 @@ Step 1 — Install Docker Desktop
 Download and install from docker.com/products/docker-desktop
 
 Step 2 — Clone the repository
-git clone https://github.com/TanujaPammina/Resume_Analyzer.git
+git clone [https://github.com/gantaNandini/Resume_Analyzer.git](https://github.com/gantaNandini/AI-Resume-Analyzer)
 cd Resume_Analyzer
 Step 3 — Set up environment variables
 # Windows
