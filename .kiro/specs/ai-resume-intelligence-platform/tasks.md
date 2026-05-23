@@ -1,0 +1,754 @@
+# Implementation Plan: AI-Powered Resume Intelligence Platform
+
+## Overview
+
+This plan converts the full platform design into sequential, incremental coding tasks across five phases: Foundation, File Processing, AI Pipeline, Scalability, and Deployment. Each task builds on the previous, ending with all components wired together into a production-ready system. Backend services are implemented in Python (FastAPI), and the frontend in React 18 + TypeScript.
+
+---
+
+## Tasks
+
+## Phase 1 — Foundation
+
+- [x] 1. Initialize monorepo project structure
+  - Create top-level directory layout: `frontend/`, `services/auth_service/`, `services/file_processor/`, `services/nlp_pipeline/`, `services/scoring_engine/`, `services/llm_service/`, `services/celery_worker/`, `infra/docker/`, `infra/k8s/`, `.github/workflows/`
+  - Add root-level `README.md`, `.gitignore` (Python, Node, Docker artifacts), and `pyproject.toml` or `Makefile` with convenience targets
+  - Add `shared/` directory for shared Python utilities (logging, JWT middleware, base models)
+  - _Requirements: 17.1, 17.2_
+
+- [x] 2. Scaffold React + TypeScript + Vite frontend
+  - [x] 2.1 Initialize Vite project with React 18 + TypeScript template inside `frontend/`
+    - Run `npm create vite@latest frontend -- --template react-ts` and install dependencies
+    - Configure `tsconfig.json` with strict mode, path aliases (`@/` → `src/`)
+    - _Requirements: 3.1_
+  - [x] 2.2 Install and configure Tailwind CSS
+    - Install `tailwindcss`, `postcss`, `autoprefixer`; run `npx tailwindcss init -p`
+    - Configure `tailwind.config.ts` with content paths, custom color palette, and typography plugin
+    - Add global CSS reset and base styles in `src/index.css`
+    - _Requirements: 3.1, 3.3_
+  - [x] 2.3 Install and configure Framer Motion and routing
+    - Install `framer-motion`, `react-router-dom@6`, `@tanstack/react-query`, `axios`
+    - Set up `BrowserRouter` in `main.tsx` with route definitions for `/`, `/login`, `/signup`, `/upload`, `/results/:jobId`, `/history`
+    - Create `AnimatedPage` wrapper component using `motion.div` with `initial`, `animate`, `exit` variants for page transitions
+    - _Requirements: 3.1, 3.2_
+  - [x] 2.4 Create shared UI component library
+    - Implement `Button`, `Input`, `Label`, `Card`, `Spinner`, `Toast`, `Badge` components in `src/components/ui/`
+    - Ensure all interactive elements meet WCAG 2.1 AA contrast ratios (minimum 4.5:1 for normal text)
+    - Add `ToastProvider` context using `react-hot-toast` or custom implementation for success/error notifications
+    - _Requirements: 3.5, 3.6_
+  - [ ]* 2.5 Write unit tests for shared UI components
+    - Install `vitest`, `@testing-library/react`, `@testing-library/user-event`, `jsdom`
+    - Test Button renders correctly, handles click, shows disabled state
+    - Test Toast renders and auto-dismisses
+    - _Requirements: 3.1_
+
+- [x] 3. Build frontend authentication pages
+  - [x] 3.1 Implement Login page (`src/pages/Login.tsx`)
+    - Create form with email and password fields using controlled inputs
+    - Add inline validation: email format check, password minimum 8 characters, display errors without page reload
+    - On submit, call `POST /api/auth/login`; store JWT in memory via `AuthContext`; redirect to `/upload` on success
+    - Apply Framer Motion `AnimatedPage` wrapper for page transition
+    - _Requirements: 2.1, 2.2, 2.3, 3.2, 3.5_
+  - [x] 3.2 Implement Signup page (`src/pages/Signup.tsx`)
+    - Create form with email, password, and confirm-password fields
+    - Add inline validation: email uniqueness hint on 409 response, password length, password match
+    - On submit, call `POST /api/auth/register`; auto-login on 201 response (store JWT, redirect to `/upload`)
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 3.2_
+  - [x] 3.3 Implement AuthContext and JWT management
+    - Create `src/context/AuthContext.tsx` with `user`, `token`, `login()`, `logout()` state
+    - Store JWT in memory (React state) and optionally persist to `sessionStorage`
+    - Create `src/lib/apiClient.ts` (axios instance) that attaches `Authorization: Bearer <token>` header on every request
+    - Implement 401 response interceptor that clears auth state and redirects to `/login`
+    - _Requirements: 2.3, 2.4_
+  - [x] 3.4 Implement `ProtectedRoute` component
+    - Create `src/components/ProtectedRoute.tsx` that checks `AuthContext` for a valid token
+    - Redirect unauthenticated users to `/login` with `replace`
+    - Wrap `/upload`, `/results/:jobId`, and `/history` routes with `ProtectedRoute`
+    - _Requirements: 2.3, 2.4, 2.5_
+  - [ ]* 3.5 Write unit tests for auth pages and AuthContext
+    - Test Login form submits correct payload and stores token on success
+    - Test Signup form shows 409 error message inline
+    - Test ProtectedRoute redirects unauthenticated users
+    - _Requirements: 1.5, 2.3_
+
+- [x] 4. Build Auth_Service (FastAPI + PostgreSQL)
+  - [x] 4.1 Initialize FastAPI project for Auth_Service
+    - Create `services/auth_service/` with `main.py`, `requirements.txt`, `Dockerfile`
+    - Install `fastapi`, `uvicorn[standard]`, `sqlalchemy`, `alembic`, `psycopg2-binary`, `bcrypt`, `PyJWT`, `pydantic[email]`, `python-dotenv`
+    - Configure `pyproject.toml` or `setup.cfg` with linting (ruff) and formatting (black)
+    - _Requirements: 1.1, 2.1_
+  - [x] 4.2 Define PostgreSQL data models and run migrations
+    - Create `models/user.py` with `User` SQLAlchemy model: `id` (UUID), `email` (unique, indexed), `hashed_password`, `created_at`, `updated_at`
+    - Configure Alembic; generate and apply initial migration creating the `users` table
+    - Create `database.py` with async SQLAlchemy engine and `get_db` dependency
+    - _Requirements: 1.1, 20.1_
+  - [x] 4.3 Implement registration endpoint `POST /auth/register`
+    - Accept `RegisterRequest` Pydantic schema: `email: EmailStr`, `password: str` (min length 8)
+    - Hash password with `bcrypt.hashpw`; insert new `User` row; return 201 with signed JWT
+    - Return 409 if email already exists; return 422 with field-level errors for invalid input
+    - _Requirements: 1.1, 1.2, 1.3, 1.4_
+  - [x] 4.4 Implement login endpoint `POST /auth/login`
+    - Accept `LoginRequest` Pydantic schema: `email: EmailStr`, `password: str`
+    - Verify password with `bcrypt.checkpw`; sign JWT with 24-hour expiry using `PyJWT`
+    - Return 200 with `{"access_token": "...", "token_type": "bearer"}` on success; 401 with generic message on failure
+    - _Requirements: 2.1, 2.2_
+  - [x] 4.5 Implement JWT middleware and `get_current_user` dependency
+    - Create `auth/jwt.py` with `create_access_token()` and `decode_access_token()` functions
+    - Create `dependencies.py` with `get_current_user` FastAPI dependency that validates Bearer token on every protected route
+    - Return 401 with `WWW-Authenticate: Bearer` header on missing, invalid, or expired token
+    - _Requirements: 2.4, 2.5_
+  - [x] 4.6 Add `/health` and `/metrics` endpoints to Auth_Service
+    - Implement `GET /health` returning `{"status": "ok", "db": "connected"}` after pinging PostgreSQL
+    - Integrate `prometheus-fastapi-instrumentator` to expose `GET /metrics` with request count, latency histograms
+    - Add structured JSON request logging middleware using `python-json-logger`
+    - _Requirements: 16.1, 16.3, 16.4_
+  - [ ]* 4.7 Write unit tests for Auth_Service
+    - Use `pytest` + `httpx.AsyncClient` with an in-memory SQLite test database
+    - Test registration happy path returns 201 + JWT
+    - Test duplicate email returns 409
+    - Test short password returns 422
+    - Test login with wrong password returns 401
+    - Test protected endpoint rejects missing/expired JWT
+    - _Requirements: 1.1–1.4, 2.1–2.5_
+
+- [x] 5. Checkpoint — Phase 1 complete
+  - Ensure Auth_Service unit tests pass; frontend builds without TypeScript errors (`npm run build`)
+  - Verify Login and Signup pages render correctly in browser with working form validation
+  - Ask the user if questions arise before proceeding to Phase 2.
+
+
+---
+
+## Phase 2 — File Processing
+
+- [x] 6. Build File_Processor service scaffold
+  - [x] 6.1 Initialize FastAPI project for File_Processor
+    - Create `services/file_processor/` with `main.py`, `requirements.txt`, `Dockerfile`
+    - Install `fastapi`, `uvicorn[standard]`, `python-multipart`, `pymupdf`, `python-docx`, `celery[rabbitmq]`, `redis`, `sqlalchemy`, `psycopg2-binary`, `python-magic`, `pydantic`, `python-dotenv`, `python-json-logger`, `prometheus-fastapi-instrumentator`
+    - Configure environment variables: `DATABASE_URL`, `RABBITMQ_URL`, `REDIS_URL`, `MAX_RESUME_SIZE_MB`, `MAX_JD_SIZE_MB`
+    - _Requirements: 4.1, 4.2_
+  - [x] 6.2 Define job submission data model and migration
+    - Create `models/job.py` with `Job` SQLAlchemy model: `id` (UUID), `user_id` (FK → users), `status` (enum: pending/processing/completed/failed), `resume_filename`, `jd_filename`, `created_at`, `updated_at`
+    - Add Alembic migration for `jobs` table; add index on `user_id` and `status`
+    - _Requirements: 13.1, 20.1, 20.2_
+
+- [x] 7. Implement file upload and validation endpoint
+  - [x] 7.1 Implement `POST /files/upload` endpoint
+    - Accept multipart form with `resume` and `jd` file fields; require valid JWT via `get_current_user` dependency
+    - Validate resume: allowed MIME types `application/pdf`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`; max 5 MB
+    - Validate JD: allowed MIME types as above plus `text/plain`; max 2 MB
+    - Use `python-magic` to verify actual MIME type from file bytes (not just extension)
+    - Return 422 with specific error message identifying which file and which rule was violated
+    - _Requirements: 4.1, 4.2, 4.3, 4.4_
+  - [x] 7.2 Persist uploaded files and enqueue analysis job
+    - Save validated files to a temporary storage path (configurable via `UPLOAD_DIR` env var)
+    - Insert a new `Job` row with `status=pending` linked to the authenticated user
+    - Enqueue a Celery task `process_analysis_job` with the job ID within 500ms of validation completing
+    - Return `{"job_id": "<uuid>", "status": "pending"}` with HTTP 202
+    - _Requirements: 4.6, 13.1, 13.3_
+  - [x] 7.3 Implement `GET /files/jobs/{job_id}/status` polling endpoint
+    - Require valid JWT; enforce row-level access (return 403 if job belongs to a different user)
+    - Query `Job` table for current status; return `{"job_id": "...", "status": "...", "result": null | <result_object>}`
+    - When status is `completed`, include the full analysis result payload in the response
+    - _Requirements: 13.3, 13.4, 20.5_
+  - [ ]* 7.4 Write unit tests for upload and validation
+    - Test PDF upload within size limit returns 202 with job_id
+    - Test file exceeding size limit returns 422 with correct error field
+    - Test unsupported MIME type returns 422
+    - Test status endpoint returns 403 for wrong user
+    - _Requirements: 4.1–4.6_
+
+- [x] 8. Implement PDF and DOCX text extraction
+  - [x] 8.1 Implement PDF parser using PyMuPDF
+    - Create `parsers/pdf_parser.py` with `extract_text_from_pdf(file_bytes: bytes) -> str`
+    - Use `fitz.open(stream=file_bytes)` to open PDF; iterate pages and extract text blocks preserving paragraph order
+    - Detect image-only PDFs: if total extracted text length < 50 characters across all pages, raise `ImageOnlyPDFError`
+    - Normalize output: strip non-printable characters (`re.sub(r'[^\x20-\x7E\n]', '', text)`), collapse runs of 3+ newlines to 2
+    - _Requirements: 5.1, 5.3, 5.4_
+  - [x] 8.2 Implement DOCX parser using python-docx
+    - Create `parsers/docx_parser.py` with `extract_text_from_docx(file_bytes: bytes) -> str`
+    - Use `docx.Document(io.BytesIO(file_bytes))` to open; iterate paragraphs and tables extracting `.text`
+    - Preserve heading hierarchy by prepending `\n\n` before heading paragraphs
+    - Apply same normalization as PDF parser (non-printable removal, whitespace collapse)
+    - _Requirements: 5.2, 5.4_
+  - [x] 8.3 Implement plain-text parser for JD `.txt` files
+    - Create `parsers/txt_parser.py` with `extract_text_from_txt(file_bytes: bytes) -> str`
+    - Decode bytes as UTF-8 with `errors='replace'`; apply normalization
+    - _Requirements: 4.2, 5.4_
+  - [x] 8.4 Create unified `DocumentParser` dispatcher
+    - Create `parsers/dispatcher.py` with `parse_document(file_bytes: bytes, mime_type: str) -> str`
+    - Route to correct parser based on MIME type; raise `UnsupportedFormatError` for unknown types
+    - Catch `ImageOnlyPDFError` and propagate as HTTP 422 in the upload endpoint
+    - _Requirements: 5.1, 5.2, 5.3, 5.4_
+  - [ ]* 8.5 Write unit tests for parsers
+    - Test PDF parser extracts known text from a fixture PDF
+    - Test DOCX parser extracts headers and bullet lists from a fixture DOCX
+    - Test image-only PDF raises `ImageOnlyPDFError`
+    - Test dispatcher routes correctly and raises on unknown MIME type
+    - _Requirements: 5.1–5.4_
+
+- [x] 9. Implement Celery worker and task scaffolding
+  - [x] 9.1 Create Celery application and task definition
+    - Create `services/celery_worker/celery_app.py` configuring Celery with RabbitMQ broker URL and Redis result backend
+    - Define `process_analysis_job(job_id: str)` task with `max_retries=3`, `default_retry_delay=60` (exponential: `countdown=60 * 2**self.request.retries`)
+    - On task start: update `Job.status = processing`; on permanent failure: update `Job.status = failed` and emit alert-level log
+    - _Requirements: 13.2, 13.5, 16.5_
+  - [x] 9.2 Wire Celery task to call downstream pipeline services
+    - Inside `process_analysis_job`: call File_Processor parsers to extract text, then make HTTP calls to NLP_Pipeline and Scoring_Engine (stubs for now returning placeholder data)
+    - On success: update `Job.status = completed`, persist result to PostgreSQL `analysis_results` table
+    - Ensure task completes idempotently (re-running with same job_id does not create duplicate records)
+    - _Requirements: 13.1, 13.2, 13.4, 13.5_
+  - [ ]* 9.3 Write unit tests for Celery task retry logic
+    - Mock downstream HTTP calls to raise exceptions; verify task retries up to 3 times
+    - Verify job status transitions: pending → processing → failed after exhausted retries
+    - _Requirements: 13.5_
+
+- [x] 10. Build frontend Upload page
+  - [x] 10.1 Implement drag-and-drop upload UI (`src/pages/Upload.tsx`)
+    - Install `react-dropzone`; create two drop zones: one for Resume (PDF/DOCX, 5 MB), one for JD (PDF/DOCX/TXT, 2 MB)
+    - Show file name, size, and type icon after selection; show error message for rejected files
+    - Disable submit button until both files are selected
+    - _Requirements: 4.5, 3.3_
+  - [x] 10.2 Implement upload submission and job polling
+    - On submit, call `POST /api/files/upload` with `multipart/form-data`; display `Spinner` during upload
+    - On 202 response, extract `job_id` and begin polling `GET /api/files/jobs/{job_id}/status` every 3 seconds using `setInterval` or React Query `refetchInterval`
+    - Display animated progress indicator while status is `processing`; navigate to `/results/{job_id}` when status is `completed`
+    - On `failed` status, display toast error and allow re-submission
+    - _Requirements: 3.4, 13.3, 13.6_
+  - [ ]* 10.3 Write unit tests for Upload page
+    - Test file rejection for oversized file shows error message
+    - Test submit button is disabled with only one file selected
+    - Test polling navigates to results page on completed status
+    - _Requirements: 4.4, 4.5, 13.3_
+
+- [x] 11. Checkpoint — Phase 2 complete
+  - Ensure all Phase 2 unit tests pass; verify end-to-end upload flow reaches `completed` status (with stub pipeline)
+  - Confirm 422 errors surface correctly in the Upload page UI
+  - Ask the user if questions arise before proceeding to Phase 3.
+
+
+---
+
+## Phase 3 — AI Pipeline
+
+- [x] 12. Build NLP_Pipeline service scaffold
+  - Create `services/nlp_pipeline/` with `main.py`, `requirements.txt`, `Dockerfile`
+  - Install `fastapi`, `uvicorn[standard]`, `spacy`, `sentence-transformers`, `scikit-learn`, `numpy`, `redis`, `qdrant-client`, `python-dotenv`, `python-json-logger`, `prometheus-fastapi-instrumentator`
+  - Download spaCy model: `python -m spacy download en_core_web_lg` (baked into Dockerfile)
+  - Configure environment variables: `REDIS_URL`, `QDRANT_URL`, `EMBEDDING_MODEL`, `SPACY_MODEL`
+  - _Requirements: 6.1, 7.1, 8.1_
+
+- [ ] 13. Implement NLP preprocessing pipeline
+  - [x] 13.1 Implement text preprocessing module
+    - Create `nlp/preprocessor.py` with `preprocess(text: str) -> PreprocessedDocument`
+    - Use spaCy `nlp(text)` pipeline: tokenize, lowercase, remove stop words (`token.is_stop`), lemmatize (`token.lemma_`)
+    - Extract named entities with `doc.ents` filtering for `ORG`, `PRODUCT`, `GPE`, `PERSON`, `WORK_OF_ART` labels (job titles, technologies, organizations)
+    - Detect section boundaries by scanning for heading-like lines (all-caps, short lines, common section keywords)
+    - Return `PreprocessedDocument(tokens: list[str], entities: list[Entity], sections: dict[str, str], original_text: str)`
+    - _Requirements: 6.1, 6.2, 6.3, 6.4_
+  - [x] 13.2 Implement `POST /nlp/preprocess` endpoint
+    - Accept `{"text": str, "document_type": "resume" | "jd", "job_id": str}`
+    - Call `preprocess()` and return the `PreprocessedDocument` as JSON
+    - Enforce 10,000-word processing within 5 seconds (add timeout guard)
+    - _Requirements: 6.4, 6.5_
+  - [ ]* 13.3 Write unit tests for NLP preprocessor
+    - Test tokenization removes stop words and lowercases tokens
+    - Test lemmatization reduces "running" → "run", "technologies" → "technology"
+    - Test NER detects "Google" as ORG and "Python" as a technology entity
+    - Test section boundary detection on a sample resume text
+    - _Requirements: 6.1–6.4_
+
+- [ ] 14. Implement skill extraction and taxonomy mapping
+  - [x] 14.1 Build canonical skill taxonomy
+    - Create `skills/taxonomy.py` with a `SKILL_TAXONOMY: dict[str, str]` mapping raw variants to canonical names
+    - Include at minimum: programming languages (Python, JavaScript, TypeScript, Java, Go, Rust, C++, C#), frameworks (React, FastAPI, Django, Spring, Node.js), tools (Docker, Kubernetes, Git, Terraform), cloud (AWS, GCP, Azure), databases (PostgreSQL, MySQL, MongoDB, Redis), ML/AI (TensorFlow, PyTorch, scikit-learn, spaCy), soft skills (leadership, communication, teamwork)
+    - Implement `canonicalize(skill: str) -> str` using case-insensitive lookup with fuzzy fallback (`difflib.get_close_matches`)
+    - _Requirements: 7.3_
+  - [x] 14.2 Implement skill extractor
+    - Create `skills/extractor.py` with `extract_skills(doc: PreprocessedDocument, document_type: str) -> SkillManifest`
+    - Match tokens and n-grams (up to 3-grams) against taxonomy keys; assign confidence score based on match type (exact=1.0, fuzzy=0.7–0.9, NER-assisted=0.85)
+    - For JD documents, classify each skill as `required` or `preferred` based on surrounding context keywords ("required", "must have", "preferred", "nice to have")
+    - Deduplicate by canonical name, keeping highest confidence score
+    - Return `SkillManifest(skills: list[SkillEntry(canonical_name, confidence, classification)])`
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
+  - [x] 14.3 Implement `POST /nlp/extract-skills` endpoint
+    - Accept `PreprocessedDocument` + `document_type`; return `SkillManifest` as JSON
+    - _Requirements: 7.1, 7.2, 7.5_
+  - [ ]* 14.4 Write unit tests for skill extraction
+    - Test "JS" and "javascript" both canonicalize to "JavaScript"
+    - Test confidence score is 1.0 for exact match, < 1.0 for fuzzy match
+    - Test JD skill classified as "required" when preceded by "must have"
+    - Test deduplication keeps highest confidence entry
+    - _Requirements: 7.3, 7.4_
+
+- [ ] 15. Implement embedding generation and vector store integration
+  - [x] 15.1 Implement embedding generator
+    - Create `embeddings/generator.py` with `generate_embeddings(doc: PreprocessedDocument) -> EmbeddingResult`
+    - Load `sentence-transformers/all-MiniLM-L6-v2` (384 dims) or configurable model via `EMBEDDING_MODEL` env var
+    - Generate full-document embedding from `doc.original_text`
+    - Generate section-level embeddings for each section in `doc.sections` (Experience, Education, Skills, Summary)
+    - Return `EmbeddingResult(full_document: list[float], sections: dict[str, list[float]], model_name: str, dimensions: int)`
+    - _Requirements: 8.1, 8.2_
+  - [x] 15.2 Implement Redis cache for embeddings
+    - Create `cache/embedding_cache.py` with `get_cached_embedding(content_hash: str)` and `set_cached_embedding(content_hash: str, embedding: EmbeddingResult, ttl: int = 3600)`
+    - Compute `content_hash = hashlib.sha256(text.encode()).hexdigest()`
+    - Use Redis `SET` with `EX=3600` (1-hour TTL); serialize/deserialize with `json` or `msgpack`
+    - _Requirements: 8.4, 14.1, 14.2_
+  - [x] 15.3 Implement Qdrant vector store client
+    - Create `vectorstore/qdrant_client.py` wrapping `qdrant_client.QdrantClient`
+    - On startup, ensure collection `resume_embeddings` exists with `VectorParams(size=384, distance=Distance.COSINE)`
+    - Implement `upsert_embedding(job_id: str, doc_type: str, user_id: str, vector: list[float], metadata: dict)`
+    - Implement `search_similar(query_vector: list[float], doc_type: str, user_id: str, top_k: int = 10) -> list[ScoredPoint]`
+    - Implement `delete_by_job_id(job_id: str)` for cleanup on job deletion
+    - _Requirements: 8.3, 15.1, 15.2, 15.3, 15.4, 15.5_
+  - [x] 15.4 Implement `POST /nlp/embed` endpoint
+    - Accept `{"text": str, "job_id": str, "doc_type": str, "user_id": str, "sections": dict}`
+    - Check Redis cache first; if miss, generate embeddings, cache result, upsert to Qdrant
+    - Return `EmbeddingResult` with cache hit/miss indicator
+    - Enforce 10-second timeout for full-document embedding of 10,000-word document
+    - _Requirements: 8.1–8.5_
+  - [ ]* 15.5 Write unit tests for embedding generation and caching
+    - Test embedding output has correct dimensions (≥ 384)
+    - Test cache hit returns same embedding without calling model
+    - Test Qdrant upsert stores vector with correct metadata
+    - Test `delete_by_job_id` removes all vectors for that job
+    - _Requirements: 8.1–8.5, 15.2–15.5_
+
+- [ ] 16. Build Scoring_Engine service scaffold
+  - Create `services/scoring_engine/` with `main.py`, `requirements.txt`, `Dockerfile`
+  - Install `fastapi`, `uvicorn[standard]`, `numpy`, `scikit-learn`, `redis`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `python-json-logger`, `prometheus-fastapi-instrumentator`
+  - Configure environment variables: `REDIS_URL`, `DATABASE_URL`, `LLM_SERVICE_URL`, `NLP_PIPELINE_URL`
+  - _Requirements: 9.1, 10.1_
+
+- [ ] 17. Implement hybrid similarity engine
+  - [x] 17.1 Implement cosine similarity scorer
+    - Create `scoring/semantic_scorer.py` with `compute_cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float`
+    - Use `numpy.dot(a, b) / (numpy.linalg.norm(a) * numpy.linalg.norm(b))`; clamp result to [0.0, 1.0]
+    - Implement `compute_section_similarities(resume_sections: dict, jd_sections: dict) -> dict[str, float]` for Experience, Education, Skills
+    - _Requirements: 9.1, 9.4_
+  - [x] 17.2 Implement TF-IDF keyword overlap scorer
+    - Create `scoring/tfidf_scorer.py` with `compute_tfidf_score(resume_tokens: list[str], jd_tokens: list[str]) -> float`
+    - Fit `TfidfVectorizer` on both token lists; compute cosine similarity between the two TF-IDF vectors
+    - Return value clamped to [0.0, 1.0]
+    - _Requirements: 9.2_
+  - [x] 17.3 Implement hybrid similarity combiner
+    - Create `scoring/hybrid_scorer.py` with `compute_hybrid_similarity(semantic_score: float, tfidf_score: float) -> float`
+    - Formula: `hybrid = 0.60 * semantic_score + 0.40 * tfidf_score`; clamp to [0.0, 1.0]
+    - _Requirements: 9.3, 9.5_
+  - [ ]* 17.4 Write property tests for hybrid similarity engine
+    - **Property 1: Hybrid score is always in [0.0, 1.0]**
+    - **Validates: Requirements 9.5**
+    - Use `hypothesis` to generate arbitrary float pairs in [0.0, 1.0] and verify `compute_hybrid_similarity` output is always in [0.0, 1.0]
+  - [ ]* 17.5 Write unit tests for similarity scorers
+    - Test identical token lists produce TF-IDF score of 1.0
+    - Test identical vectors produce cosine similarity of 1.0
+    - Test orthogonal vectors produce cosine similarity of 0.0
+    - Test hybrid formula weights: 0.6 semantic + 0.4 tfidf
+    - _Requirements: 9.1–9.5_
+
+- [ ] 18. Implement ATS score computation
+  - [x] 18.1 Implement ATS score calculator
+    - Create `scoring/ats_scorer.py` with `compute_ats_score(hybrid_similarity: float, keyword_density: float, skill_coverage: float, formatting_score: float) -> int`
+    - Formula: `raw = 0.40 * hybrid_similarity + 0.25 * keyword_density + 0.25 * skill_coverage + 0.10 * formatting_score`; multiply by 100 and round to nearest integer; clamp to [0, 100]
+    - Implement `classify_score(score: int) -> str`: return "Poor" for 0–49, "Fair" for 50–74, "Strong" for 75–100
+    - _Requirements: 10.1, 10.2, 10.3_
+  - [x] 18.2 Implement keyword density calculator
+    - Create `scoring/keyword_density.py` with `compute_keyword_density(resume_tokens: list[str], jd_tokens: list[str]) -> float`
+    - Count how many unique JD tokens appear in resume tokens; divide by total unique JD tokens; clamp to [0.0, 1.0]
+    - _Requirements: 10.2_
+  - [x] 18.3 Implement skill coverage calculator
+    - Create `scoring/skill_coverage.py` with `compute_skill_coverage(resume_skills: SkillManifest, jd_skills: SkillManifest) -> float`
+    - Count required JD skills present in resume skills; divide by total required JD skills; return 1.0 if no required skills
+    - _Requirements: 10.2, 11.1_
+  - [x] 18.4 Implement formatting signal detector
+    - Create `scoring/formatting_detector.py` with `compute_formatting_score(raw_text: str) -> float`
+    - Check for presence of common section headers (Experience, Education, Skills, Summary), consistent bullet point usage, reasonable line length distribution
+    - Return score between 0.0 and 1.0 based on number of positive signals detected
+    - _Requirements: 10.2_
+  - [x] 18.5 Implement `POST /scoring/ats-score` endpoint
+    - Accept resume and JD embeddings, token lists, and skill manifests
+    - Orchestrate calls to all sub-scorers; return `ATSResult(score: int, band: str, hybrid_similarity: float, section_scores: dict, keyword_density: float, skill_coverage: float)`
+    - Cache result in Redis keyed by `sha256(resume_text + jd_text)` with 1-hour TTL; include `X-Cache: HIT|MISS` response header
+    - _Requirements: 10.1–10.5, 14.1, 14.4_
+  - [ ]* 18.6 Write property tests for ATS score computation
+    - **Property 2: ATS score is always an integer in [0, 100]**
+    - **Validates: Requirements 10.1**
+    - Use `hypothesis` to generate arbitrary float inputs in [0.0, 1.0] and verify `compute_ats_score` always returns an integer in [0, 100]
+  - [ ]* 18.7 Write unit tests for ATS scorer
+    - Test all-zero inputs produce score of 0
+    - Test all-one inputs produce score of 100
+    - Test band classification boundaries: 49 → "Poor", 50 → "Fair", 75 → "Strong"
+    - _Requirements: 10.1–10.3_
+
+- [ ] 19. Implement skill gap detection
+  - [x] 19.1 Implement skill gap analyzer
+    - Create `scoring/skill_gap.py` with `compute_skill_gap(resume_manifest: SkillManifest, jd_manifest: SkillManifest) -> SkillGapResult`
+    - Compute set difference: JD canonical skills not present in resume canonical skills
+    - Classify each gap item as "Required" or "Preferred" from JD manifest classification
+    - Rank by: Required first, then by confidence score descending (most prominent JD skills first)
+    - Return `SkillGapResult(required_missing: list[str], preferred_missing: list[str], full_coverage: bool)`
+    - _Requirements: 11.1, 11.2, 11.3, 11.5_
+  - [x] 19.2 Implement `POST /scoring/skill-gap` endpoint
+    - Accept resume and JD skill manifests; return `SkillGapResult`
+    - When resume skills are a superset of JD skills, return `full_coverage: true` with empty lists
+    - _Requirements: 11.1–11.5_
+  - [ ]* 19.3 Write property tests for skill gap detection
+    - **Property 3: Skill gap is always a subset of JD skills**
+    - **Validates: Requirements 11.1**
+    - Use `hypothesis` to generate arbitrary resume and JD skill sets; verify every item in the gap result is present in the JD manifest
+  - [ ]* 19.4 Write unit tests for skill gap analyzer
+    - Test resume with all JD skills returns `full_coverage: true` and empty lists
+    - Test required missing skills appear before preferred missing skills
+    - Test gap items are ranked by confidence score descending
+    - _Requirements: 11.1–11.5_
+
+- [-] 20. Build LLM_Service
+  - [x] 20.1 Initialize FastAPI project for LLM_Service
+    - Create `services/llm_service/` with `main.py`, `requirements.txt`, `Dockerfile`
+    - Install `fastapi`, `uvicorn[standard]`, `openai`, `litellm`, `pydantic`, `python-dotenv`, `python-json-logger`, `prometheus-fastapi-instrumentator`
+    - Configure environment variables: `OPENAI_API_KEY`, `LLM_MODEL` (default `gpt-4o-mini`), `LLM_TIMEOUT_SECONDS` (default 30)
+    - _Requirements: 12.1_
+  - [x] 20.2 Implement suggestion generation logic
+    - Create `llm/suggestion_generator.py` with `generate_suggestions(ats_score: int, skill_gap: SkillGapResult, section_scores: dict, resume_text: str, jd_text: str) -> list[Suggestion]`
+    - Build a structured prompt instructing the LLM to produce 3–10 suggestions, each with `title`, `explanation` (1–2 sentences), and `example` (concrete recommended change)
+    - Explicitly instruct the LLM not to reproduce verbatim content from resume or JD
+    - When `ats_score < 50`, include a system instruction requiring at least one keyword optimization suggestion
+    - Parse LLM JSON response into `list[Suggestion]`; validate count is between 3 and 10
+    - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.6_
+  - [x] 20.3 Implement 30-second timeout and fallback
+    - Wrap LLM call in `asyncio.wait_for(..., timeout=30.0)`
+    - On `asyncio.TimeoutError` or any LLM API exception, return `SuggestionResult(suggestions=[], available=False, error="LLM service timeout")`
+    - Log the timeout/error at WARNING level with request context
+    - _Requirements: 12.5_
+  - [x] 20.4 Implement `POST /llm/suggestions` endpoint
+    - Accept `ATSResult`, `SkillGapResult`, and truncated resume/JD text (max 4000 tokens each)
+    - Call `generate_suggestions` with 30-second timeout; return `SuggestionResult`
+    - _Requirements: 12.1–12.6_
+  - [ ]* 20.5 Write unit tests for LLM_Service
+    - Mock OpenAI client to return a valid JSON response; verify suggestions are parsed correctly
+    - Mock OpenAI client to raise `asyncio.TimeoutError`; verify fallback response has `available=False`
+    - Test suggestion count validation rejects responses with fewer than 3 suggestions
+    - _Requirements: 12.1–12.6_
+
+- [ ] 21. Wire full AI pipeline in Celery task
+  - [x] 21.1 Update `process_analysis_job` to call real pipeline services
+    - Replace stubs with actual HTTP calls: File_Processor parsers → NLP_Pipeline `/nlp/preprocess` → NLP_Pipeline `/nlp/extract-skills` → NLP_Pipeline `/nlp/embed` → Scoring_Engine `/scoring/ats-score` → Scoring_Engine `/scoring/skill-gap` → LLM_Service `/llm/suggestions`
+    - Use `httpx.AsyncClient` with per-service timeouts; propagate errors with structured logging
+    - _Requirements: 13.1, 13.2_
+  - [x] 21.2 Persist full analysis result to PostgreSQL
+    - Create `models/analysis_result.py` with `AnalysisResult` SQLAlchemy model: `id`, `job_id` (FK), `user_id` (FK), `ats_score`, `band`, `hybrid_similarity`, `section_scores` (JSONB), `skill_gap` (JSONB), `suggestions` (JSONB), `created_at`
+    - Add Alembic migration for `analysis_results` table
+    - After pipeline completes, insert `AnalysisResult` row and update `Job.status = completed`
+    - _Requirements: 20.1, 20.2, 20.3_
+  - [x] 21.3 Implement analysis result retrieval endpoint
+    - Add `GET /files/jobs/{job_id}/result` to File_Processor (or a dedicated Results service)
+    - Enforce row-level access: return 403 if `job.user_id != current_user.id`
+    - Return full `AnalysisResult` payload; return 404 if job not found or not yet completed
+    - _Requirements: 20.5_
+  - [ ]* 21.4 Write integration tests for full pipeline
+    - Use fixture PDF and DOCX files; run full pipeline end-to-end with mocked LLM
+    - Verify `AnalysisResult` is persisted with non-null `ats_score`, `skill_gap`, and `suggestions`
+    - Verify job status transitions from `pending` → `processing` → `completed`
+    - _Requirements: 13.1–13.5, 20.2_
+
+- [ ] 22. Build frontend Results Dashboard
+  - [x] 22.1 Implement animated ATS score gauge (`src/components/ATSGauge.tsx`)
+    - Create a circular SVG gauge using `stroke-dasharray` / `stroke-dashoffset` technique
+    - Animate from 0 to the score value on mount using Framer Motion `animate` with `duration: 1.5`
+    - Color the gauge arc based on band: red (Poor), amber (Fair), green (Strong)
+    - Display score number and band label in the center
+    - _Requirements: 10.4, 19.2_
+  - [x] 22.2 Implement skill gap columns (`src/components/SkillGapPanel.tsx`)
+    - Render two columns: "Required Missing Skills" (red badges) and "Preferred Missing Skills" (amber badges)
+    - Show "Full Coverage ✓" message when `full_coverage` is true
+    - _Requirements: 11.4, 19.3_
+  - [x] 22.3 Implement expandable LLM suggestion cards (`src/components/SuggestionCard.tsx`)
+    - Render each suggestion as a card showing `title` by default
+    - On click/expand, animate reveal of `explanation` and `example` using Framer Motion `AnimatePresence` + `motion.div`
+    - Show "Suggestions unavailable" notice when `available=false`
+    - _Requirements: 12.4, 19.4_
+  - [x] 22.4 Implement Results page (`src/pages/Results.tsx`)
+    - Fetch analysis result from `GET /api/files/jobs/{jobId}/result` using React Query
+    - Compose `ATSGauge`, `SkillGapPanel`, `SuggestionCard` list, and section similarity scores
+    - Display `Spinner` while loading; display error toast on fetch failure
+    - _Requirements: 19.1, 3.4_
+  - [x] 22.5 Implement "Download Report" PDF export
+    - Install `jspdf` and `html2canvas`
+    - Implement `downloadReport(result: AnalysisResult)` that renders a formatted PDF with ATS score, skill gap, and suggestions
+    - Trigger download on button click; show loading state during generation
+    - _Requirements: 19.5_
+  - [ ]* 22.6 Write unit tests for Results Dashboard components
+    - Test ATSGauge renders correct color for each band
+    - Test SkillGapPanel shows "Full Coverage" when gap is empty
+    - Test SuggestionCard expands on click and shows explanation
+    - _Requirements: 19.1–19.4_
+
+- [ ] 23. Build frontend History page
+  - [x] 23.1 Implement History page (`src/pages/History.tsx`)
+    - Add `GET /api/jobs` endpoint to File_Processor returning paginated list of jobs for the authenticated user (page, page_size query params; default page_size=10)
+    - Fetch paginated history with React Query; render table/list with columns: submission date, ATS score, band badge, link to results
+    - Implement pagination controls (previous/next, page number display)
+    - _Requirements: 19.6, 20.5_
+  - [ ]* 23.2 Write unit tests for History page
+    - Test pagination controls render correctly with multiple pages
+    - Test each row links to the correct results page
+    - _Requirements: 19.6_
+
+- [x] 24. Build frontend Landing/Home page
+  - Implement `src/pages/Home.tsx` with animated hero section using Framer Motion
+  - Hero includes headline, subheadline, and CTA buttons ("Get Started" → `/signup`, "Log In" → `/login`)
+  - Add feature highlights section (3 cards: ATS Scoring, Skill Gap Analysis, AI Suggestions) with staggered entrance animations
+  - Ensure page is fully responsive from 320px to 2560px
+  - _Requirements: 3.2, 3.3_
+
+- [ ] 25. Checkpoint — Phase 3 complete
+  - Ensure all Phase 3 unit and integration tests pass
+  - Verify full end-to-end flow: upload → pipeline → results dashboard renders with real data
+  - Confirm LLM timeout fallback works (results display without suggestions when LLM is unavailable)
+  - Ask the user if questions arise before proceeding to Phase 4.
+
+
+---
+
+## Phase 4 — Scalability
+
+- [ ] 26. Implement Redis caching layer across all services
+  - [x] 26.1 Create shared Redis client utility
+    - Create `shared/cache.py` with `RedisCache` class wrapping `redis.asyncio.Redis`
+    - Implement `get(key: str) -> Optional[str]`, `set(key: str, value: str, ttl: int)`, `delete(key: str)`, `ping() -> bool`
+    - Configure Redis with `maxmemory-policy allkeys-lru` in `redis.conf` (included in docker-compose)
+    - On `ConnectionError`, log at WARNING level and return `None` (cache miss fallback)
+    - _Requirements: 14.3, 14.5_
+  - [x] 26.2 Add cache-aside pattern to Scoring_Engine ATS endpoint
+    - Before running pipeline: compute `content_hash = sha256(resume_text + jd_text)`; check Redis for cached `ATSResult`
+    - On cache hit: return cached result with `X-Cache: HIT` header within 200ms
+    - On cache miss: run pipeline, store result with `EX=3600`, return with `X-Cache: MISS` header
+    - _Requirements: 14.1, 14.2, 14.4_
+  - [x] 26.3 Add cache-aside pattern to NLP_Pipeline embedding endpoint
+    - Check Redis for cached embedding using `sha256(text)` key before calling sentence-transformer model
+    - Store generated embedding in Redis with `EX=3600`
+    - _Requirements: 8.4, 14.1_
+  - [x] 26.4 Implement cache invalidation on job deletion
+    - When user deletes a job (`DELETE /files/jobs/{job_id}`), delete the corresponding Redis cache entry and Qdrant vectors
+    - _Requirements: 14.1, 15.5, 20.4_
+  - [ ]* 26.5 Write unit tests for Redis caching
+    - Test cache hit returns result without calling downstream scorer
+    - Test cache miss calls scorer and stores result
+    - Test `X-Cache` header is set correctly on both hit and miss
+    - Test cache unavailability falls back to full pipeline and logs warning
+    - _Requirements: 14.1–14.5_
+
+- [ ] 27. Harden Celery + RabbitMQ async task queue
+  - [x] 27.1 Configure Celery with exponential backoff retry policy
+    - Update `celery_app.py`: set `task_acks_late=True`, `task_reject_on_worker_lost=True` for at-least-once delivery
+    - Configure `process_analysis_job` with `autoretry_for=(Exception,)`, `max_retries=3`, `retry_backoff=True`, `retry_backoff_max=300`
+    - _Requirements: 13.5_
+  - [x] 27.2 Implement dead letter queue for permanently failed jobs
+    - Configure RabbitMQ dead letter exchange (`x-dead-letter-exchange`) in `celery_app.py`
+    - On permanent failure (after 3 retries), emit alert-level structured log with `job_id`, `failure_reason`, `retry_history`
+    - Update `Job.status = failed` with `failure_reason` field
+    - _Requirements: 13.5, 16.5_
+  - [ ] 27.3 Implement job status WebSocket or SSE upgrade (optional polling improvement)
+    - Add `GET /files/jobs/{job_id}/status` endpoint that supports `text/event-stream` content type for Server-Sent Events
+    - Frontend can use SSE instead of polling when supported; fall back to 3-second polling otherwise
+    - _Requirements: 13.3, 13.4_
+  - [ ]* 27.4 Write integration tests for retry behavior
+    - Mock NLP_Pipeline to fail twice then succeed; verify job completes on third attempt
+    - Mock NLP_Pipeline to fail 4 times; verify job status is `failed` and alert log is emitted
+    - _Requirements: 13.5, 16.5_
+
+- [ ] 28. Implement structured logging and Prometheus metrics across all services
+  - [x] 28.1 Create shared logging configuration
+    - Create `shared/logging_config.py` with `configure_logging()` that sets up `python-json-logger` with fields: `timestamp`, `level`, `service`, `request_id`, `endpoint`, `method`, `status_code`, `response_time_ms`
+    - Add FastAPI middleware in each service that generates a `request_id` (UUID), attaches it to request state, and logs request/response
+    - _Requirements: 16.1, 16.2_
+  - [x] 28.2 Add Prometheus metrics to all services
+    - Add `prometheus-fastapi-instrumentator` to Auth_Service, File_Processor, NLP_Pipeline, Scoring_Engine, LLM_Service
+    - Expose `GET /metrics` on each service with: `http_requests_total` (counter by endpoint/status), `http_request_duration_seconds` (histogram), `pipeline_processing_duration_seconds` (histogram for AI pipeline jobs)
+    - _Requirements: 16.4_
+  - [x] 28.3 Add `/health` endpoint to all services
+    - Implement `GET /health` on each service checking connectivity to its dependencies (PostgreSQL, Redis, RabbitMQ, Qdrant as applicable)
+    - Return `{"status": "ok" | "degraded", "dependencies": {"postgres": "ok" | "error", ...}}`
+    - _Requirements: 16.3_
+  - [x] 28.4 Add unhandled exception logging middleware
+    - Add FastAPI exception handler that catches all unhandled exceptions, logs full stack trace at ERROR level with `request_id`, and returns a generic 500 response
+    - _Requirements: 16.2_
+  - [ ]* 28.5 Write unit tests for logging and health endpoints
+    - Test `/health` returns 200 with `status: ok` when all dependencies are reachable
+    - Test `/health` returns 200 with `status: degraded` when a dependency is unreachable
+    - Test request logging middleware emits JSON log with all required fields
+    - _Requirements: 16.1–16.4_
+
+- [ ] 29. Implement job deletion and data cleanup
+  - [x] 29.1 Implement `DELETE /files/jobs/{job_id}` endpoint
+    - Require valid JWT; enforce row-level access (403 if not owner)
+    - Delete `AnalysisResult` and `Job` rows from PostgreSQL
+    - Delete Redis cache entry for the job's content hash
+    - Enqueue a Celery task `cleanup_job_vectors(job_id)` to delete Qdrant vectors within 60 seconds
+    - Return 204 on success
+    - _Requirements: 15.5, 20.4_
+  - [ ]* 29.2 Write unit tests for job deletion
+    - Test deletion removes PostgreSQL records and Redis cache entry
+    - Test Qdrant cleanup task is enqueued
+    - Test 403 is returned when a different user attempts deletion
+    - _Requirements: 15.5, 20.4, 20.5_
+
+- [ ] 30. Checkpoint — Phase 4 complete
+  - Ensure all Phase 4 unit and integration tests pass
+  - Verify cache hit returns result with `X-Cache: HIT` header in under 200ms
+  - Verify Celery retry behavior with simulated worker failures
+  - Verify all `/health` and `/metrics` endpoints respond correctly
+  - Ask the user if questions arise before proceeding to Phase 5.
+
+
+---
+
+## Phase 5 — Deployment
+
+- [ ] 31. Write Dockerfiles for all services
+  - [x] 31.1 Write Dockerfile for Auth_Service
+    - Use `python:3.12-slim` base image; set `WORKDIR /app`
+    - Copy `requirements.txt` and run `pip install --no-cache-dir -r requirements.txt` as a separate layer for caching
+    - Copy application source; expose port 8001; set `CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]`
+    - Add `.dockerignore` excluding `__pycache__`, `*.pyc`, `.env`, `tests/`
+    - _Requirements: 17.1_
+  - [x] 31.2 Write Dockerfile for File_Processor
+    - Use `python:3.12-slim` base; install `libmagic1` system dependency via `apt-get`
+    - Multi-stage build: builder stage installs dependencies; final stage copies only installed packages and source
+    - Expose port 8002
+    - _Requirements: 17.1_
+  - [x] 31.3 Write Dockerfile for NLP_Pipeline
+    - Use `python:3.12-slim` base; install spaCy model during build: `RUN python -m spacy download en_core_web_lg`
+    - Download sentence-transformer model during build to bake it into the image (avoids cold-start download)
+    - Expose port 8003; set memory-efficient uvicorn workers: `--workers 1 --timeout-keep-alive 30`
+    - _Requirements: 17.1_
+  - [x] 31.4 Write Dockerfile for Scoring_Engine
+    - Use `python:3.12-slim` base; expose port 8004
+    - _Requirements: 17.1_
+  - [x] 31.5 Write Dockerfile for LLM_Service
+    - Use `python:3.12-slim` base; expose port 8005
+    - Do NOT bake API keys into image; require `OPENAI_API_KEY` at runtime via environment variable
+    - _Requirements: 17.1_
+  - [x] 31.6 Write Dockerfile for Celery worker
+    - Use same base image as File_Processor; install all pipeline dependencies
+    - Set `CMD ["celery", "-A", "celery_app", "worker", "--loglevel=info", "--concurrency=4"]`
+    - _Requirements: 17.1_
+  - [x] 31.7 Write Dockerfile for Frontend
+    - Multi-stage build: stage 1 uses `node:20-alpine` to run `npm ci && npm run build`
+    - Stage 2 uses `nginx:alpine`; copy `dist/` to `/usr/share/nginx/html`; copy custom `nginx.conf` with SPA fallback (`try_files $uri /index.html`)
+    - Expose port 80
+    - _Requirements: 17.1_
+
+- [ ] 32. Write docker-compose.yml for full local stack
+  - [x] 32.1 Define infrastructure services in docker-compose.yml
+    - Add `postgres:16-alpine` service with `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` env vars; mount named volume `postgres_data`
+    - Add `redis:7-alpine` service with `--maxmemory 256mb --maxmemory-policy allkeys-lru` command; mount named volume `redis_data`
+    - Add `rabbitmq:3.12-management-alpine` service exposing ports 5672 (AMQP) and 15672 (management UI)
+    - Add `qdrant/qdrant:v1.9.0` service exposing port 6333; mount named volume `qdrant_data`
+    - _Requirements: 17.2_
+  - [x] 32.2 Define application services in docker-compose.yml
+    - Add `auth_service`, `file_processor`, `nlp_pipeline`, `scoring_engine`, `llm_service`, `celery_worker`, `frontend` services
+    - Configure `depends_on` with `condition: service_healthy` for infrastructure dependencies
+    - Add `healthcheck` directives for each infrastructure service
+    - Set `restart: unless-stopped` on all services
+    - Mount `./services/<name>` as volume for hot-reload in development (with `uvicorn --reload`)
+    - _Requirements: 17.2_
+  - [x] 32.3 Add Nginx reverse proxy service to docker-compose.yml
+    - Add `nginx:alpine` service as API gateway routing `/api/auth/` → auth_service:8001, `/api/files/` → file_processor:8002, `/api/nlp/` → nlp_pipeline:8003, `/api/scoring/` → scoring_engine:8004, `/api/llm/` → llm_service:8005, `/` → frontend:80
+    - Write `infra/docker/nginx.conf` with upstream blocks and proxy_pass directives
+    - Expose port 80 on the host
+    - _Requirements: 17.2_
+  - [ ]* 32.4 Verify docker-compose stack starts cleanly
+    - Write a shell script `scripts/smoke_test.sh` that runs `docker compose up -d`, waits for all health checks to pass, then curls each `/health` endpoint and asserts 200 responses
+    - _Requirements: 17.2_
+
+- [ ] 33. Write Kubernetes manifests
+  - [x] 33.1 Write Kubernetes Deployments for all application services
+    - Create `infra/k8s/deployments/` with one YAML file per service: `auth-service.yaml`, `file-processor.yaml`, `nlp-pipeline.yaml`, `scoring-engine.yaml`, `llm-service.yaml`, `celery-worker.yaml`, `frontend.yaml`
+    - Each Deployment: `replicas: 2` (default), `strategy: RollingUpdate` with `maxUnavailable: 0`, `maxSurge: 1`
+    - Set `resources.requests` (cpu: 250m, memory: 256Mi) and `resources.limits` (cpu: 1000m, memory: 1Gi) on each container; adjust NLP_Pipeline to limits cpu: 2000m, memory: 2Gi
+    - Add `livenessProbe` and `readinessProbe` pointing to `/health` endpoint on each service
+    - _Requirements: 17.3, 17.4, 17.5_
+  - [ ] 33.2 Write Kubernetes Services for all application services
+    - Create `infra/k8s/services/` with ClusterIP Service for each application service
+    - Create LoadBalancer or NodePort Service for the Nginx ingress/frontend
+    - _Requirements: 17.3_
+  - [x] 33.3 Write Kubernetes ConfigMaps and Secrets
+    - Create `infra/k8s/config/configmap.yaml` with non-sensitive config: service URLs, Redis TTL, embedding model name, Celery concurrency
+    - Create `infra/k8s/config/secrets.yaml` template (values as `<base64-encoded-placeholder>`) for: `POSTGRES_PASSWORD`, `JWT_SECRET_KEY`, `OPENAI_API_KEY`, `RABBITMQ_PASSWORD`
+    - Add comment in secrets.yaml instructing operators to populate values via `kubectl create secret` or a secrets manager
+    - _Requirements: 17.3_
+  - [x] 33.4 Write Horizontal Pod Autoscaler manifests for NLP_Pipeline and Scoring_Engine
+    - Create `infra/k8s/hpa/nlp-pipeline-hpa.yaml`: `minReplicas: 2`, `maxReplicas: 10`, scale on CPU utilization > 70%
+    - Create `infra/k8s/hpa/scoring-engine-hpa.yaml`: `minReplicas: 2`, `maxReplicas: 8`, scale on CPU utilization > 70%
+    - _Requirements: 17.5_
+  - [ ] 33.5 Write Kubernetes manifests for infrastructure services
+    - Create StatefulSet + PersistentVolumeClaim for PostgreSQL and Qdrant
+    - Create Deployment for Redis with PVC
+    - Create StatefulSet for RabbitMQ with PVC
+    - _Requirements: 17.3_
+
+- [ ] 34. Write GitHub Actions CI/CD pipeline
+  - [x] 34.1 Write CI workflow (`.github/workflows/ci.yml`)
+    - Trigger on `pull_request` to `main` branch
+    - Jobs: `lint` (ruff for Python, eslint for TypeScript), `test-backend` (pytest for each service with PostgreSQL and Redis service containers), `test-frontend` (vitest --run)
+    - Use `actions/cache` to cache pip and npm dependencies
+    - On any job failure, post a PR comment summarizing which checks failed using `actions/github-script`
+    - _Requirements: 18.1, 18.4_
+  - [x] 34.2 Write build and push workflow (`.github/workflows/build.yml`)
+    - Trigger on push to `main` branch (after CI passes)
+    - Build Docker images for all 7 services using `docker/build-push-action`
+    - Tag images with `git sha` and `latest`; push to GitHub Container Registry (`ghcr.io`)
+    - Run Trivy vulnerability scanner (`aquasecurity/trivy-action`) on each built image; fail build if CRITICAL vulnerabilities found
+    - _Requirements: 18.2, 18.5_
+  - [x] 34.3 Write deploy workflow (`.github/workflows/deploy.yml`)
+    - Trigger on successful completion of build workflow on `main`
+    - Use `azure/k8s-deploy` or `kubectl set image` to update Kubernetes Deployments with new image tags
+    - Implement rolling update: `kubectl rollout status deployment/<name> --timeout=300s` to verify rollout completes
+    - On rollout failure, run `kubectl rollout undo deployment/<name>` to revert
+    - _Requirements: 18.3_
+  - [ ]* 34.4 Write integration test job in CI workflow
+    - Add `integration-test` job that spins up the full docker-compose stack, runs `scripts/smoke_test.sh`, and tears down
+    - Run after unit test jobs pass; required for PR merge
+    - _Requirements: 18.1_
+
+- [ ] 35. Final wiring and end-to-end validation
+  - [x] 35.1 Add Alembic migration runner to service startup
+    - In Auth_Service and File_Processor `main.py`, add a startup event that runs `alembic upgrade head` before accepting requests
+    - Alternatively, add a Kubernetes init container that runs migrations before the main container starts
+    - _Requirements: 20.1_
+  - [ ] 35.2 Implement user-scoped analysis history endpoint
+    - Add `GET /files/jobs` to File_Processor with query params `page` (default 1) and `page_size` (default 10, max 50)
+    - Return `{"jobs": [...], "total": int, "page": int, "page_size": int}` filtered to `current_user.id`
+    - Enforce 90-day retention: add a Celery periodic task (`celery beat`) that deletes `Job` and `AnalysisResult` rows older than 90 days
+    - _Requirements: 20.3, 20.5, 19.6_
+  - [x] 35.3 Wire frontend API client to production Nginx base URL
+    - Update `src/lib/apiClient.ts` to use `VITE_API_BASE_URL` environment variable (defaults to `/api` for same-origin Nginx proxy)
+    - Add `.env.example` with all required frontend environment variables
+    - _Requirements: 2.3_
+  - [x] 35.4 Add CORS configuration to all FastAPI services
+    - Add `CORSMiddleware` to each service allowing the frontend origin (configurable via `ALLOWED_ORIGINS` env var)
+    - In production, restrict to the actual frontend domain; in development, allow `http://localhost:5173`
+    - _Requirements: 2.3_
+  - [ ]* 35.5 Write end-to-end smoke tests
+    - Write `tests/e2e/test_full_flow.py` using `httpx` that: registers a user, logs in, uploads fixture resume + JD, polls until completed, fetches result, verifies ATS score is an integer in [0, 100], verifies skill gap is a list, verifies suggestions list has 3–10 items (or `available=false`)
+    - _Requirements: 1.1, 2.1, 4.6, 10.1, 11.1, 12.1_
+
+- [ ] 36. Final checkpoint — Production-ready validation
+  - Ensure all unit, integration, and end-to-end tests pass
+  - Run `docker compose up` and verify the full stack starts with a single command
+  - Verify GitHub Actions CI workflow runs successfully on a test PR
+  - Verify Kubernetes manifests apply cleanly with `kubectl apply --dry-run=client -f infra/k8s/`
+  - Ask the user if questions arise.
+
+---
+
+## Notes
+
+- Tasks marked with `*` are optional and can be skipped for a faster MVP build
+- Each task references specific requirements for full traceability
+- Checkpoints at the end of each phase ensure incremental validation before proceeding
+- Property tests (Tasks 17.4, 18.6, 19.3) validate universal correctness invariants using `hypothesis`
+- All backend services use Python 3.12 + FastAPI; frontend uses React 18 + TypeScript + Vite
+- Environment variables are never hardcoded; all secrets are injected at runtime
+- The Nginx reverse proxy in docker-compose and Kubernetes provides a single entry point for the frontend

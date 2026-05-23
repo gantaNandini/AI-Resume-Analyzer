@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: resume-platform
+data:
+  DATABASE_URL: "postgresql://postgres:postgres@postgres-svc:5432/resume_db"
+  RABBITMQ_URL: "amqp://guest:guest@rabbitmq-svc:5672//"
+  REDIS_URL: "redis://redis-svc:6379/0"
+  QDRANT_URL: "http://qdrant-svc:6333"
+  NLP_PIPELINE_URL: "http://nlp-pipeline-svc:8003"
+  SCORING_ENGINE_URL: "http://scoring-engine-svc:8004"
+  LLM_SERVICE_URL: "http://llm-service-svc:8005"
+  EMBEDDING_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
+  SPACY_MODEL: "en_core_web_lg"
+  LLM_MODEL: "gpt-4o-mini"
+  LLM_TIMEOUT_SECONDS: "30"
+  MAX_RESUME_SIZE_MB: "5"
+  MAX_JD_SIZE_MB: "2"
+  UPLOAD_DIR: "/tmp/uploads"
+  LOG_LEVEL: "INFO"
+  JWT_ALGORITHM: "HS256"
+  JWT_EXPIRY_HOURS: "24"

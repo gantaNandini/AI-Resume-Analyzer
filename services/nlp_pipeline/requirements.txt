@@ -1,0 +1,19 @@
+fastapi==0.115.0
+uvicorn[standard]==0.29.0
+h11>=0.13.0
+httptools>=0.5.0
+spacy==3.7.4
+scikit-learn==1.5.0
+numpy==1.26.4
+redis==5.0.6
+qdrant-client==1.9.1
+python-dotenv==1.0.1
+python-json-logger==2.0.7
+prometheus-fastapi-instrumentator==6.1.0
+torch==2.1.2+cpu
+# huggingface_hub 0.16.4 is the last version with cached_download,
+# required by sentence-transformers 2.2.2
+huggingface_hub==0.16.4
+sentence-transformers==2.2.2
+transformers==4.30.2
+tokenizers==0.13.3

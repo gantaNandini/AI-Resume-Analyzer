@@ -1,0 +1,60 @@
+name: Deploy to Production
+
+on:
+  workflow_run:
+    workflows: ["Build & Push"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Rolling Deploy
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "v1.29.0"
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+
+      - name: Get image SHA tag
+        id: sha
+        run: echo "tag=sha-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Deploy all services
+        env:
+          TAG: ${{ steps.sha.outputs.tag }}
+          REGISTRY: ghcr.io/${{ github.repository_owner }}
+        run: |
+          SERVICES=(auth-service file-processor nlp-pipeline scoring-engine llm-service celery-worker frontend)
+          for svc in "${SERVICES[@]}"; do
+            echo "Deploying $svc..."
+            kubectl set image deployment/$svc \
+              $svc=$REGISTRY/$svc:$TAG \
+              -n resume-platform
+          done
+
+      - name: Wait for rollouts
+        run: |
+          DEPLOYMENTS=(auth-service file-processor nlp-pipeline scoring-engine llm-service celery-worker frontend)
+          for dep in "${DEPLOYMENTS[@]}"; do
+            echo "Waiting for $dep..."
+            kubectl rollout status deployment/$dep -n resume-platform --timeout=300s || {
+              echo "Rollout failed for $dep, rolling back..."
+              kubectl rollout undo deployment/$dep -n resume-platform
+              exit 1
+            }
+          done
+
+      - name: Verify health endpoints
+        run: |
+          echo "All deployments rolled out successfully."
+          kubectl get pods -n resume-platform
